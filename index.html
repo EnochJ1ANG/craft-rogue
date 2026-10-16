@@ -2,7 +2,8 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<title>CraftRogue 2.5D - P2P 多人联机版</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CraftRogue 2.5D - 独立发育与休整版</title>
 <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
 <style>
   body {
@@ -24,11 +25,23 @@
   #hpBar { height: 100%; background: #e53935; width: 100%; transition: width 0.1s; }
   #xpBar { height: 100%; background: #76ff03; width: 0%; transition: width 0.1s; }
   
+  /* 中央状态提示 */
+  #centerStatus {
+    position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+    text-align: center; pointer-events: none;
+  }
+  #breakTimerDisplay {
+    font-size: 20px; color: #ffeb3b; text-shadow: 2px 2px #000;
+    background: rgba(0,0,0,0.6); padding: 6px 16px; border: 2px solid #ffeb3b; border-radius: 4px;
+    display: none; margin-bottom: 6px;
+  }
+
   .top-right-controls { display: flex; gap: 8px; justify-content: flex-end; align-items: center; margin-bottom: 6px; }
   .room-badge {
     background: rgba(0,0,0,0.65); padding: 5px 10px; border: 2px solid #76ff03;
-    color: #76ff03; font-size: 15px; pointer-events: auto; user-select: text;
+    color: #76ff03; font-size: 15px; pointer-events: auto; cursor: pointer;
   }
+  .room-badge:hover { background: rgba(118, 255, 3, 0.2); }
   .hud-btn {
     background: #424242; color: #fff; border: 2px solid #fff; padding: 5px 12px;
     font-family: inherit; font-weight: bold; font-size: 14px; cursor: pointer;
@@ -44,7 +57,7 @@
   .modal-title { font-size: 28px; color: #ffeb3b; text-shadow: 3px 3px #000; margin-bottom: 18px; font-weight: bold; }
   .lobby-box {
     background: #2c2c2c; border: 3px solid #666; padding: 24px 32px;
-    display: flex; flex-direction: column; gap: 14px; width: 340px; text-align: center;
+    display: flex; flex-direction: column; gap: 14px; width: 350px; text-align: center;
     box-shadow: 0 8px 0 #111;
   }
   .input-group { display: flex; flex-direction: column; gap: 6px; text-align: left; }
@@ -60,16 +73,18 @@
     font-family: inherit; transition: 0.1s;
   }
   .btn:hover { background: #66bb6a; transform: translateY(-2px); }
-  .btn:disabled { background: #555; border-color: #888; color: #aaa; cursor: not-allowed; transform: none; }
   .btn-blue { background: #0288d1; }
   .btn-blue:hover { background: #03a9f4; }
+  .btn-purple { background: #7b1fa2; font-size: 14px; padding: 8px 14px; }
+  .btn-purple:hover { background: #9c27b0; }
   .divider { border-top: 2px dashed #444; margin: 4px 0; }
-  #statusMsg { color: #ffeb3b; font-size: 13px; min-height: 18px; margin-top: 4px; }
+  #statusMsg { color: #ffeb3b; font-size: 13px; min-height: 18px; margin-top: 4px; line-height: 1.4; }
 
   /* 房间等候室玩家列表 */
+  .code-row { display: flex; gap: 8px; align-items: stretch; }
   .code-highlight {
-    font-size: 28px; color: #76ff03; background: #1a1a1a; border: 2px dashed #76ff03;
-    padding: 8px; letter-spacing: 4px; user-select: text;
+    flex: 1; font-size: 26px; color: #76ff03; background: #1a1a1a; border: 2px dashed #76ff03;
+    padding: 6px; letter-spacing: 4px; user-select: text; display: flex; align-items: center; justify-content: center;
   }
   .player-list {
     background: #1e1e1e; border: 2px solid #444; padding: 10px;
@@ -82,14 +97,16 @@
   }
   .player-item.client { border-left-color: #00e5ff; }
 
-  /* 隐藏的弹窗 */
   #waitingModal, #pauseModal, #upgradeModal, #gameOverModal { display: none; }
+  /* 附魔弹窗半透明背景，不阻挡游戏画面 */
+  #upgradeModal { background: rgba(0,0,0,0.5); }
 
   /* 附魔卡片 */
   .cards { display: flex; gap: 16px; }
   .card {
     background: #373737; border: 3px solid #8b8b8b; width: 175px; padding: 16px;
     cursor: pointer; text-align: center; transition: 0.15s; box-shadow: 0 6px 0 #1b1b1b;
+    pointer-events: auto;
   }
   .card:hover { border-color: #76ff03; transform: translateY(-5px); background: #4a4a4a; }
   .card h3 { margin: 0 0 10px 0; color: #b388ff; font-size: 18px; }
@@ -106,54 +123,57 @@
     <div>
       <div>❤️ 我的生命: <span id="hpText">100/100</span></div>
       <div class="bar-bg"><div id="hpBar"></div></div>
-      <div style="margin-top:6px;">✨ 队伍等级 <span id="lvlText">1</span> (全队共享附魔)</div>
+      <div style="margin-top:6px;">✨ 我的等级: <span id="lvlText">1</span></div>
       <div class="bar-bg"><div id="xpBar"></div></div>
     </div>
+    
+    <div id="centerStatus">
+      <div id="breakTimerDisplay">☕ 休整倒计时: 50s</div>
+      <button class="hud-btn" id="skipBreakBtn" style="display:none; background:#ff9800; border-color:#fff;">⏩ 房主跳过休整</button>
+    </div>
+
     <div style="text-align: right;">
       <div class="top-right-controls">
-        <div class="room-badge" id="roomCodeDisplay">🔑 房间密码: ------</div>
-        <button class="hud-btn" id="pauseBtn">⏸️ 暂停 (P)</button>
+        <div class="room-badge" id="roomCodeDisplay" title="点击复制邀请链接">🔑 房间: ------ (复制)</div>
+        <button class="hud-btn" id="pauseBtn">⏸️ 暂停(P)</button>
       </div>
-      <div>👥 在线: <span id="playerCountText">1</span> | ⚔️ 波次: <span id="waveText">1</span> | 💀 击杀: <span id="killText">0</span></div>
-      <div style="font-size:12px; color:#ddd; margin-top:4px;">WASD移动 | 空格跳跃 | 左键挥砍 | P键暂停</div>
+      <div>👥 存活: <span id="playerCountText">1</span> | ⚔️ 波次: <span id="waveText">1</span> | 💀 击杀: <span id="killText">0</span></div>
+      <div style="font-size:12px; color:#ddd; margin-top:4px;">WASD移动 | 空格跳跃 | 左键挥砍</div>
     </div>
   </div>
 
   <!-- 1. 初始联机大厅界面 -->
   <div id="lobbyModal" class="modal">
-    <div class="modal-title">⛏️ CraftRogue 2.5D 联机大厅</div>
+    <div class="modal-title">⛏️ CraftRogue 2.5D (独立发育版)</div>
     <div class="lobby-box">
       <div class="input-group">
         <label>你的头顶昵称：</label>
         <input type="text" id="nicknameInput" value="Steve" maxlength="12">
       </div>
-      
-      <button class="btn" id="hostBtn">👑 创建房间 (我是房主)</button>
-      
+      <button class="btn" id="hostBtn">👑 创建新房间 (我是房主)</button>
       <div class="divider"></div>
-      
       <div class="input-group">
         <label>输入房主的 6 位数字密码：</label>
         <input type="text" id="roomCodeInput" placeholder="例如: 123456" maxlength="6">
       </div>
       <button class="btn btn-blue" id="joinBtn">🔗 加入好友房间</button>
-      
       <div id="statusMsg">准备就绪，请选择创建或加入房间</div>
     </div>
   </div>
 
-  <!-- 2. 房间等待大厅 (Waiting Room) -->
+  <!-- 2. 房间等待大厅 -->
   <div id="waitingModal" class="modal">
     <div class="modal-title">🏕️ 房间准备大厅</div>
-    <div class="lobby-box" style="width: 380px;">
-      <div style="font-size:13px; color:#bbb;">把下方 6 位密码发给好友即可加入：</div>
-      <div class="code-highlight" id="waitingRoomCode">------</div>
-      
+    <div class="lobby-box" style="width: 390px;">
+      <div style="font-size:13px; color:#bbb;">房间密码（或直接复制邀请链接发给好友）：</div>
+      <div class="code-row">
+        <div class="code-highlight" id="waitingRoomCode">------</div>
+        <button class="btn btn-purple" id="copyLinkBtn">📋 复制链接</button>
+      </div>
       <div class="input-group">
         <label>当前房间内的玩家 (<span id="lobbyPlayerCount">1</span>人)：</label>
         <div class="player-list" id="lobbyPlayerList"></div>
       </div>
-
       <button class="btn" id="startGameBtn">🚀 开始游戏 (Start Game)</button>
       <div id="waitingHint" style="font-size:13px; color:#ffeb3b; display:none;">⏳ 等待房主点击开始游戏...</div>
     </div>
@@ -165,13 +185,13 @@
     <div class="lobby-box" style="width: 300px;">
       <p id="pauseDesc" style="margin: 0 0 10px 0; color: #ccc; font-size: 14px;">全队时间和怪物动作已冻结</p>
       <button class="btn" id="resumeBtn">▶️ 继续游戏 (P)</button>
-      <button class="btn" style="background:#d32f2f; margin-top:6px;" onclick="location.reload()">🚪 退出房间</button>
+      <button class="btn" style="background:#d32f2f; margin-top:6px;" onclick="window.location.href=window.location.pathname">🚪 退出房间</button>
     </div>
   </div>
 
-  <!-- 4. 附魔升级界面 -->
+  <!-- 4. 附魔升级界面 (个人独立选择) -->
   <div id="upgradeModal" class="modal">
-    <div class="modal-title" id="upgradeTitle">📖 附魔台：选择一项全队强化</div>
+    <div class="modal-title" id="upgradeTitle">📖 升级奖励：选择一项个人强化</div>
     <div class="cards" id="cardContainer"></div>
   </div>
 
@@ -179,7 +199,7 @@
   <div id="gameOverModal" class="modal">
     <div class="modal-title" style="color:#ff5252;">全军覆没 (Team Wiped!)</div>
     <p id="finalScore" style="font-size:18px;"></p>
-    <button class="btn" onclick="location.reload()">返回联机大厅</button>
+    <button class="btn" onclick="window.location.href=window.location.pathname">返回大厅</button>
   </div>
 </div>
 
@@ -187,29 +207,48 @@
 window.onload = function() {
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
+  const statusMsg = document.getElementById('statusMsg');
 
-  // --- 网络与房间状态 ---
-  const ROOM_PREFIX = 'craftrogue-25d-room-';
+  // --- 网络状态 ---
+  const ROOM_PREFIX = 'craftrogue-25d-v2-room-';
   let peer = null;
   let isHost = false;
   let myId = 'host';
   let roomCode = '';
-  let hostConn = null;        // 客机保存与房主的连接
-  const clientConns = {};     // 房主保存所有客机的连接 { peerId: conn }
-  const remoteInputs = {};    // 房主保存所有客机的按键输入
+  let hostConn = null;
+  const clientConns = {};
+  const remoteInputs = {};
 
-  // --- 游戏流程与暂停状态 ---
+  // 检测邀请链接
+  const urlParams = new URLSearchParams(window.location.search);
+  const invitedRoom = urlParams.get('room');
+  if (invitedRoom && invitedRoom.length === 6) {
+    document.getElementById('roomCodeInput').value = invitedRoom;
+    document.getElementById('nicknameInput').value = 'Alex';
+    statusMsg.innerHTML = '✨ 已识别邀请房间 <strong>' + invitedRoom + '</strong>！<br>直接点击【加入好友房间】';
+  }
+
+  function copyInviteLink(btnEl) {
+    const inviteUrl = window.location.origin + window.location.pathname + '?room=' + roomCode;
+    navigator.clipboard.writeText(inviteUrl).then(() => {
+      const oldText = btnEl.innerText;
+      btnEl.innerText = '✅ 已复制!';
+      setTimeout(() => btnEl.innerText = oldText, 2000);
+    }).catch(() => prompt('复制以下链接：', inviteUrl));
+  }
+  document.getElementById('copyLinkBtn').onclick = function() { copyInviteLink(this); };
+  document.getElementById('roomCodeDisplay').onclick = function() { copyInviteLink(this); };
+
+  // --- 游戏主控状态 ---
   const keys = {};
   const mouse = { x: 480, y: 300, down: false };
-  let gameStarted = false;    // 房主是否已点击“开始游戏”
-  let isManualPaused = false; // 房主是否按了暂停
-  let isUpgradePaused = false;// 是否处于升级三选一暂停中
+  let gameStarted = false;
+  let isManualPaused = false;
   let walkTick = 0;
 
-  // 键盘事件 (支持 P 键快捷暂停/继续)
   window.addEventListener('keydown', e => {
     keys[e.code] = true;
-    if ((e.code === 'KeyP' || e.code === 'Escape') && gameStarted && !isUpgradePaused) {
+    if ((e.code === 'KeyP' || e.code === 'Escape') && gameStarted && document.getElementById('upgradeModal').style.display !== 'flex') {
       if (isHost) toggleManualPause();
     }
   });
@@ -222,10 +261,13 @@ window.onload = function() {
   canvas.addEventListener('mousedown', () => mouse.down = true);
   window.addEventListener('mouseup', () => mouse.down = false);
 
-  // --- 游戏核心数据 ---
+  // --- 核心逻辑数据 ---
   let teamState = {
-    lvl: 1, xp: 0, maxXp: 6, wave: 1, kills: 0,
-    dmgBonus: 0, rangeBonus: 0, arcBonus: 0, kbBonus: 0, cdMult: 1, speedBonus: 0, maxHpBonus: 0
+    state: 'LOBBY', // LOBBY, PLAYING, BREAK
+    wave: 1, kills: 0,
+    breakTimer: 0,
+    spawnedThisWave: 0,
+    targetSpawns: 10
   };
 
   let players = {};
@@ -241,111 +283,90 @@ window.onload = function() {
     { x: 700, y: 430, w: 44, d: 34, h: 48, type: 'tree' }
   ];
 
+  // 个人独立附魔池
   const enchantPool = [
-    { id: 0, name: "锋利 (Sharpness)", desc: "全队钻石剑伤害 +16", apply: () => teamState.dmgBonus += 16 },
-    { id: 1, name: "横扫之刃 (Sweeping)", desc: "全队挥砍距离 +18，弧度扩大", apply: () => { teamState.rangeBonus += 18; teamState.arcBonus += 0.22; } },
-    { id: 2, name: "击退 (Knockback)", desc: "全队击飞与挑空力度 +6", apply: () => teamState.kbBonus += 6 },
-    { id: 3, name: "急迫 (Haste)", desc: "全队挥剑冷却时间缩短 18%", apply: () => teamState.cdMult *= 0.82 },
-    { id: 4, name: "迅捷药水 (Speed)", desc: "全队移动速度 +0.55", apply: () => teamState.speedBonus += 0.55 },
-    { id: 5, name: "金苹果 (Golden Apple)", desc: "全队最大生命 +30 并恢复 60 血量", apply: () => {
-      teamState.maxHpBonus += 30;
-      Object.values(players).forEach(p => {
-        p.maxHp = 100 + teamState.maxHpBonus;
-        p.hp = Math.min(p.maxHp, (p.hp <= 0 ? 50 : p.hp + 60));
-      });
-    }}
+    { id: 0, name: "锋利 (Sharpness)", desc: "个人武器伤害 +16", apply: (p) => p.dmgBonus += 16 },
+    { id: 1, name: "横扫 (Sweeping)", desc: "个人攻击范围与距离提升", apply: (p) => { p.rangeBonus += 18; p.arcBonus += 0.22; } },
+    { id: 2, name: "击退 (Knockback)", desc: "个人击飞力度 +6", apply: (p) => p.kbBonus += 6 },
+    { id: 3, name: "急迫 (Haste)", desc: "个人挥剑冷却缩短 18%", apply: (p) => p.cdMult *= 0.82 },
+    { id: 4, name: "迅捷药水 (Speed)", desc: "个人移动速度 +0.55", apply: (p) => p.speedBonus += 0.55 },
+    { id: 5, name: "金苹果 (G-Apple)", desc: "最大生命 +30 并恢复 60 血量", apply: (p) => { p.maxHpBonus += 30; p.maxHp = 100 + p.maxHpBonus; p.hp = Math.min(p.maxHp, p.hp + 60); } }
   ];
 
   function createPlayerObj(id, name, skinIndex) {
     return {
-      id, name,
-      skin: skinIndex % 2 === 0 ? 'steve' : 'alex',
-      x: 440 + (Math.random() * 80 - 40),
-      y: 280 + (Math.random() * 60 - 30),
+      id, name, skin: skinIndex % 2 === 0 ? 'steve' : 'alex',
+      x: 440 + (Math.random() * 80 - 40), y: 280 + (Math.random() * 60 - 30),
       z: 0, vz: 0, radius: 14,
-      hp: 100 + teamState.maxHpBonus,
-      maxHp: 100 + teamState.maxHpBonus,
-      cooldownTimer: 0, swingAnim: 0, angle: 0, bob: 0,
-      reviveTimer: 0
+      hp: 100, maxHp: 100,
+      cooldownTimer: 0, swingAnim: 0, angle: 0, bob: 0, reviveTimer: 0,
+      // 个人独立成长属性
+      lvl: 1, xp: 0, maxXp: 5, pendingUpgrades: 0,
+      dmgBonus: 0, rangeBonus: 0, arcBonus: 0, kbBonus: 0, cdMult: 1, speedBonus: 0, maxHpBonus: 0
     };
   }
 
   // ==========================================
-  // 一、房间大厅、等待室与暂停控制
+  // UI 控制逻辑
   // ==========================================
-  const statusMsg = document.getElementById('statusMsg');
-
-  // 渲染等待大厅里的玩家名单
   function renderWaitingRoomList() {
     const listEl = document.getElementById('lobbyPlayerList');
     const pArr = Object.values(players);
     document.getElementById('lobbyPlayerCount').innerText = pArr.length;
     listEl.innerHTML = '';
-
     pArr.forEach(p => {
-      const item = document.createElement('div');
       const isPlayerHost = (p.id === 'host');
+      const item = document.createElement('div');
       item.className = 'player-item' + (isPlayerHost ? '' : ' client');
-      const roleTag = isPlayerHost ? '👑 房主' : '🎮 队员';
-      const skinTag = p.skin === 'alex' ? 'Alex' : 'Steve';
-      const meTag = (p.id === myId) ? ' (我)' : '';
-      item.innerHTML = `<span><strong>${p.name}</strong>${meTag}</span> <span style="color:#aaa;font-size:12px;">[${skinTag}] ${roleTag}</span>`;
+      item.innerHTML = `<span><strong>${p.name}</strong>${p.id === myId ? ' (我)' : ''}</span> <span style="color:#aaa;font-size:12px;">[${p.skin === 'alex'?'Alex':'Steve'}] ${isPlayerHost ? '👑 房主' : '🎮 队员'}</span>`;
       listEl.appendChild(item);
     });
   }
 
-  // 房主广播大厅玩家名单给所有客机
   function broadcastLobbyState() {
     renderWaitingRoomList();
     Object.values(clientConns).forEach(conn => {
-      if (conn.open) {
-        conn.send({ type: 'lobby_update', players, gameStarted });
-      }
+      if (conn.open) conn.send({ type: 'lobby_update', players, gameStarted });
     });
   }
 
-  // 打开等待室界面
   function openWaitingRoomUI(code) {
     document.getElementById('lobbyModal').style.display = 'none';
     document.getElementById('waitingModal').style.display = 'flex';
     document.getElementById('waitingRoomCode').innerText = code;
-
-    if (isHost) {
-      document.getElementById('startGameBtn').style.display = 'block';
-      document.getElementById('waitingHint').style.display = 'none';
-    } else {
-      document.getElementById('startGameBtn').style.display = 'none';
-      document.getElementById('waitingHint').style.display = 'block';
-    }
+    document.getElementById('startGameBtn').style.display = isHost ? 'block' : 'none';
+    document.getElementById('waitingHint').style.display = isHost ? 'none' : 'block';
     renderWaitingRoomList();
   }
 
-  // 正式进入游戏战斗画面
   function startActualGameUI() {
     gameStarted = true;
     document.getElementById('lobbyModal').style.display = 'none';
     document.getElementById('waitingModal').style.display = 'none';
     document.getElementById('hud').style.display = 'flex';
-    document.getElementById('roomCodeDisplay').innerText = '🔑 房间密码: ' + roomCode;
-    // 只有房主可以点击暂停按钮
-    if (!isHost) {
-      document.getElementById('pauseBtn').style.display = 'none';
-    }
+    if (!isHost) document.getElementById('pauseBtn').style.display = 'none';
   }
 
-  // 房主点击“开始游戏”按钮
   document.getElementById('startGameBtn').onclick = () => {
     if (!isHost) return;
     startActualGameUI();
-    for (let i = 0; i < 4; i++) spawnEnemy();
+    teamState.state = 'PLAYING';
+    teamState.wave = 1;
+    teamState.spawnedThisWave = 0;
+    teamState.targetSpawns = 8 + Object.keys(players).length * 4;
     Object.values(clientConns).forEach(conn => {
       if (conn.open) conn.send({ type: 'start_game', players });
     });
   };
 
-  // 房主切换手动暂停
+  document.getElementById('skipBreakBtn').onclick = () => {
+    if (isHost && teamState.state === 'BREAK') {
+      teamState.breakTimer = 0; // 立即结束休整
+    }
+  };
+
   function toggleManualPause() {
-    if (!isHost || !gameStarted || isUpgradePaused) return;
+    if (!isHost || !gameStarted) return;
     isManualPaused = !isManualPaused;
     updatePauseModalUI();
     Object.values(clientConns).forEach(conn => {
@@ -355,17 +376,10 @@ window.onload = function() {
 
   function updatePauseModalUI() {
     const modal = document.getElementById('pauseModal');
-    const resumeBtn = document.getElementById('resumeBtn');
-    const pauseDesc = document.getElementById('pauseDesc');
     if (isManualPaused) {
       modal.style.display = 'flex';
-      if (isHost) {
-        resumeBtn.style.display = 'block';
-        pauseDesc.innerText = '你已暂停游戏，全队动作已冻结';
-      } else {
-        resumeBtn.style.display = 'none';
-        pauseDesc.innerText = '⏳ 房主已暂停游戏，请等待房主继续...';
-      }
+      document.getElementById('resumeBtn').style.display = isHost ? 'block' : 'none';
+      document.getElementById('pauseDesc').innerText = isHost ? '你已暂停游戏' : '⏳ 房主已暂停游戏...';
     } else {
       modal.style.display = 'none';
     }
@@ -374,30 +388,27 @@ window.onload = function() {
   document.getElementById('pauseBtn').onclick = () => toggleManualPause();
   document.getElementById('resumeBtn').onclick = () => toggleManualPause();
 
-  // 1. 房主点击创建房间
+  // ==========================================
+  // 网络连接逻辑
+  // ==========================================
   document.getElementById('hostBtn').onclick = () => {
-    if (typeof Peer === 'undefined') {
-      statusMsg.innerText = '❌ PeerJS 加载失败，请检查网络后刷新网页';
-      return;
-    }
+    if (typeof Peer === 'undefined') { statusMsg.innerText = '❌ PeerJS 加载失败'; return; }
     const name = document.getElementById('nicknameInput').value.trim() || 'Steve';
     roomCode = Math.floor(100000 + Math.random() * 900000).toString();
-    statusMsg.innerText = '正在创建加密房间通道...';
+    statusMsg.innerText = '创建通道中...';
 
     peer = new Peer(ROOM_PREFIX + roomCode);
     peer.on('open', () => {
-      isHost = true;
-      myId = 'host';
+      isHost = true; myId = 'host';
       players[myId] = createPlayerObj(myId, name, 0);
       openWaitingRoomUI(roomCode);
     });
 
     peer.on('connection', conn => {
       conn.on('open', () => {
-        const skinIdx = Object.keys(players).length;
         clientConns[conn.peer] = conn;
         remoteInputs[conn.peer] = { mx: 0, my: 0, jump: false, attack: false, angle: 0 };
-        players[conn.peer] = createPlayerObj(conn.peer, '连接中...', skinIdx);
+        players[conn.peer] = createPlayerObj(conn.peer, '连接中...', Object.keys(players).length);
         broadcastLobbyState();
       });
 
@@ -405,46 +416,31 @@ window.onload = function() {
         if (data.type === 'join_info' && players[conn.peer]) {
           players[conn.peer].name = data.name;
           broadcastLobbyState();
-          // 如果房主已经在游戏中，让中途加入的玩家直接进战斗画面
-          if (gameStarted) {
-            conn.send({ type: 'start_game', players });
-          }
+          if (gameStarted) conn.send({ type: 'start_game', players });
         } else if (data.type === 'input') {
           remoteInputs[conn.peer] = data.state;
+        } else if (data.type === 'select_enchant') {
+          applyEnchant(conn.peer, data.cardId);
         }
       });
 
       conn.on('close', () => {
-        delete clientConns[conn.peer];
-        delete remoteInputs[conn.peer];
-        delete players[conn.peer];
+        delete clientConns[conn.peer]; delete remoteInputs[conn.peer]; delete players[conn.peer];
         broadcastLobbyState();
       });
     });
-
-    peer.on('error', err => {
-      statusMsg.innerText = '❌ 创建房间出错: ' + err.type;
-    });
   };
 
-  // 2. 客机输入密码加入房间
   document.getElementById('joinBtn').onclick = () => {
-    if (typeof Peer === 'undefined') {
-      statusMsg.innerText = '❌ PeerJS 加载失败，请检查网络连接';
-      return;
-    }
+    if (typeof Peer === 'undefined') return;
     const code = document.getElementById('roomCodeInput').value.trim();
-    if (code.length !== 6) {
-      statusMsg.innerText = '⚠️ 请输入正确的 6 位数字房间密码！';
-      return;
-    }
+    if (code.length !== 6) { statusMsg.innerText = '⚠️ 请输入 6 位密码！'; return; }
     const name = document.getElementById('nicknameInput').value.trim() || 'Alex';
-    statusMsg.innerText = '正在连接房主 (密码: ' + code + ')...';
+    statusMsg.innerText = '连接中...';
 
     peer = new Peer();
     peer.on('open', id => {
-      myId = id;
-      roomCode = code;
+      myId = id; roomCode = code;
       hostConn = peer.connect(ROOM_PREFIX + code, { reliable: false });
 
       hostConn.on('open', () => {
@@ -455,76 +451,51 @@ window.onload = function() {
 
       hostConn.on('data', msg => {
         if (msg.type === 'lobby_update') {
-          players = msg.players;
-          renderWaitingRoomList();
+          players = msg.players; renderWaitingRoomList();
           if (msg.gameStarted && !gameStarted) startActualGameUI();
         } else if (msg.type === 'start_game') {
-          players = msg.players;
-          startActualGameUI();
+          players = msg.players; startActualGameUI();
         } else if (msg.type === 'pause_state') {
-          isManualPaused = msg.isManualPaused;
-          updatePauseModalUI();
+          isManualPaused = msg.isManualPaused; updatePauseModalUI();
         } else if (msg.type === 'sync') {
-          players = msg.players;
-          enemies = msg.enemies;
-          projectiles = msg.projectiles;
-          xpOrbs = msg.xpOrbs;
+          players = msg.players; enemies = msg.enemies;
+          projectiles = msg.projectiles; xpOrbs = msg.xpOrbs;
           teamState = msg.teamState;
-          isManualPaused = msg.isManualPaused;
-          isUpgradePaused = msg.isUpgradePaused;
-          updatePauseModalUI();
-          if (msg.events && msg.events.length > 0) {
-            msg.events.forEach(ev => addLocalParticles(ev.x, ev.y, ev.z, ev.color, ev.count, ev.speed));
-          }
+          if (msg.events) msg.events.forEach(ev => addLocalParticles(ev.x, ev.y, ev.z, ev.color, ev.count, ev.speed));
           updateHUD();
-        } else if (msg.type === 'level_up_modal') {
+        } else if (msg.type === 'show_upgrade_modal') {
           showUpgradeModalClient(msg.cardIds);
         } else if (msg.type === 'close_upgrade_modal') {
           document.getElementById('upgradeModal').style.display = 'none';
-          isUpgradePaused = false;
         } else if (msg.type === 'game_over') {
-          showGameOverModal();
+          document.getElementById('finalScore').innerText = '小队倒在了第 ' + teamState.wave + ' 波';
+          document.getElementById('gameOverModal').style.display = 'flex';
         }
       });
 
-      hostConn.on('close', () => {
-        alert('与房主的连接已断开！');
-        location.reload();
-      });
-    });
-
-    peer.on('error', err => {
-      statusMsg.innerText = '❌ 无法加入房间，请确认密码是否正确 (' + err.type + ')';
+      hostConn.on('close', () => { alert('已断开连接！'); window.location.reload(); });
     });
   };
 
   // ==========================================
-  // 二、房主权威物理与战斗逻辑
+  // 房主核心逻辑 (波次、独立附魔升级)
   // ==========================================
   let pendingParticleEvents = [];
-
   function broadcastParticles(x, y, z, color, count, speed) {
     addLocalParticles(x, y, z, color, count, speed);
-    if (isHost) {
-      pendingParticleEvents.push({ x: Math.round(x), y: Math.round(y), z: Math.round(z), color, count, speed });
-    }
+    if (isHost) pendingParticleEvents.push({ x: Math.round(x), y: Math.round(y), z: Math.round(z), color, count, speed });
   }
 
   function addLocalParticles(x, y, z, color, count, speed) {
     count = count || 8; speed = speed || 4;
     for (let i = 0; i < count; i++) {
-      const a = Math.random() * Math.PI * 2;
-      const s = Math.random() * speed + 1;
-      particles.push({
-        x, y, z: z + 10,
-        vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: Math.random() * 5 + 2,
-        color, life: 22 + Math.random() * 12
-      });
+      const a = Math.random() * Math.PI * 2; const s = Math.random() * speed + 1;
+      particles.push({ x, y, z: z + 10, vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: Math.random() * 5 + 2, color, life: 22 + Math.random() * 12 });
     }
   }
 
   function spawnEnemy() {
-    if (!isHost || !gameStarted || isManualPaused || isUpgradePaused) return;
+    if (!isHost || !gameStarted || isManualPaused || teamState.state !== 'PLAYING') return;
     const edge = Math.floor(Math.random() * 4);
     let x, y;
     if (edge === 0) { x = Math.random() * canvas.width; y = -20; }
@@ -534,43 +505,34 @@ window.onload = function() {
 
     const rand = Math.random();
     let type = 'zombie';
-    if (rand > 0.78) type = 'creeper';
-    else if (rand > 0.52) type = 'skeleton';
+    if (rand > 0.78) type = 'creeper'; else if (rand > 0.52) type = 'skeleton';
 
-    const playerMultiplier = 1 + (Object.keys(players).length - 1) * 0.35;
-    const scale = (1 + (teamState.wave - 1) * 0.15) * playerMultiplier;
+    const pMult = 1 + (Object.keys(players).length - 1) * 0.35;
+    const scale = (1 + (teamState.wave - 1) * 0.15) * pMult;
     const configs = {
-      zombie:   { hp: Math.round(55 * scale), speed: 1.45, radius: 13 },
+      zombie: { hp: Math.round(55 * scale), speed: 1.45, radius: 13 },
       skeleton: { hp: Math.round(38 * scale), speed: 1.25, radius: 12, shootTimer: 90 },
-      creeper:  { hp: Math.round(45 * scale), speed: 1.85, radius: 13, fuse: 0 }
+      creeper: { hp: Math.round(45 * scale), speed: 1.85, radius: 13, fuse: 0 }
     };
-
-    enemies.push({
-      x, y, z: 0, vx: 0, vy: 0, vz: 0,
-      type, ...configs[type], maxHp: configs[type].hp,
-      hitFlash: 0, animOffset: Math.floor(Math.random() * 100)
-    });
+    enemies.push({ x, y, z: 0, vx: 0, vy: 0, vz: 0, type, ...configs[type], maxHp: configs[type].hp, hitFlash: 0, animOffset: Math.floor(Math.random()*100) });
   }
 
   setInterval(() => {
-    if (isHost && gameStarted && !isManualPaused && !isUpgradePaused) {
-      const pCount = Object.keys(players).length;
-      const count = Math.min(10, 2 + Math.floor(teamState.wave / 2) + pCount);
-      for (let i = 0; i < count; i++) spawnEnemy();
+    if (isHost && gameStarted && !isManualPaused && teamState.state === 'PLAYING') {
+      if (teamState.spawnedThisWave < teamState.targetSpawns) {
+        const batch = Math.min(teamState.targetSpawns - teamState.spawnedThisWave, 2 + Math.floor(teamState.wave/2) + Object.keys(players).length);
+        for (let i = 0; i < batch; i++) { spawnEnemy(); teamState.spawnedThisWave++; }
+      }
     }
   }, 2500);
 
   function resolveObstacleCollision(entity) {
     obstacles.forEach(ob => {
-      const halfW = ob.w / 2 + (entity.radius || 13);
-      const halfD = ob.d / 2 + (entity.radius || 13);
-      const dx = entity.x - ob.x;
-      const dy = entity.y - (ob.y - ob.d * 0.2);
+      const halfW = ob.w / 2 + (entity.radius || 13); const halfD = ob.d / 2 + (entity.radius || 13);
+      const dx = entity.x - ob.x, dy = entity.y - (ob.y - ob.d * 0.2);
       if (Math.abs(dx) < halfW && Math.abs(dy) < halfD) {
-        const overlapX = halfW - Math.abs(dx);
-        const overlapY = halfD - Math.abs(dy);
-        if (overlapX < overlapY) entity.x += dx > 0 ? overlapX : -overlapX;
-        else entity.y += dy > 0 ? overlapY : -overlapY;
+        const overlapX = halfW - Math.abs(dx), overlapY = halfD - Math.abs(dy);
+        if (overlapX < overlapY) entity.x += dx > 0 ? overlapX : -overlapX; else entity.y += dy > 0 ? overlapY : -overlapY;
       }
     });
   }
@@ -588,30 +550,20 @@ window.onload = function() {
 
   function performPlayerAttack(p) {
     if (p.cooldownTimer > 0 || p.hp <= 0) return;
-    const baseCd = Math.max(7, Math.floor(20 * teamState.cdMult));
-    p.cooldownTimer = baseCd;
+    p.cooldownTimer = Math.max(7, Math.floor(20 * p.cdMult));
     p.swingAnim = 10;
-
-    const range = 75 + teamState.rangeBonus;
-    const arc = Math.PI * 0.7 + teamState.arcBonus;
-    const dmg = 28 + teamState.dmgBonus;
-    const kb = 11 + teamState.kbBonus;
+    const range = 75 + p.rangeBonus, arc = Math.PI * 0.7 + p.arcBonus, dmg = 28 + p.dmgBonus, kb = 11 + p.kbBonus;
 
     enemies.forEach(e => {
       const dx = e.x - p.x, dy = e.y - p.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist <= range + (e.radius || 13)) {
+      if (Math.hypot(dx, dy) <= range + (e.radius || 13)) {
         let angleDiff = Math.atan2(dy, dx) - p.angle;
         while (angleDiff > Math.PI) angleDiff -= Math.PI * 2;
         while (angleDiff < -Math.PI) angleDiff += Math.PI * 2;
-
         if (Math.abs(angleDiff) <= arc / 2) {
-          e.hp -= dmg;
-          e.hitFlash = 7;
+          e.hp -= dmg; e.hitFlash = 7;
           const kbAngle = Math.atan2(dy, dx);
-          e.vx = Math.cos(kbAngle) * kb;
-          e.vy = Math.sin(kbAngle) * kb;
-          e.vz = 4.5;
+          e.vx = Math.cos(kbAngle) * kb; e.vy = Math.sin(kbAngle) * kb; e.vz = 4.5;
           broadcastParticles(e.x, e.y, 15, '#ff1744', 7, 3.5);
         }
       }
@@ -619,79 +571,59 @@ window.onload = function() {
   }
 
   function explodeCreeper(c) {
-    broadcastParticles(c.x, c.y, 15, '#ff9800', 30, 7);
-    broadcastParticles(c.x, c.y, 20, '#ffffff', 15, 5);
+    broadcastParticles(c.x, c.y, 15, '#ff9800', 30, 7); broadcastParticles(c.x, c.y, 20, '#ffffff', 15, 5);
     const radius = 115;
-    Object.values(players).forEach(p => {
-      if (p.hp > 0 && Math.hypot(p.x - c.x, p.y - c.y) < radius) {
-        p.hp -= 35;
-        p.vz = 6;
-      }
-    });
-    enemies.forEach(e => {
-      if (e !== c && Math.hypot(e.x - c.x, e.y - c.y) < radius) {
-        e.hp -= 85;
-        e.vz = 7;
-        e.hitFlash = 10;
-      }
-    });
+    Object.values(players).forEach(p => { if (p.hp > 0 && Math.hypot(p.x - c.x, p.y - c.y) < radius) { p.hp -= 35; p.vz = 6; } });
+    enemies.forEach(e => { if (e !== c && Math.hypot(e.x - c.x, e.y - c.y) < radius) { e.hp -= 85; e.vz = 7; e.hitFlash = 10; } });
   }
 
-  function triggerHostLevelUp() {
-    isUpgradePaused = true;
-    const picked = enchantPool.slice().sort(() => 0.5 - Math.random()).slice(0, 3);
-    const cardIds = picked.map(c => c.id);
+  // --- 触发独立附魔选择菜单 ---
+  function triggerUpgradesForEveryone() {
+    Object.values(players).forEach(p => sendUpgradeOptionsToPlayer(p.id));
+  }
 
-    Object.values(clientConns).forEach(conn => {
-      if (conn.open) conn.send({ type: 'level_up_modal', cardIds });
-    });
+  function sendUpgradeOptionsToPlayer(playerId) {
+    const p = players[playerId];
+    if (p.pendingUpgrades > 0) {
+      const picked = enchantPool.slice().sort(() => 0.5 - Math.random()).slice(0, 3);
+      const cardIds = picked.map(c => c.id);
+      if (playerId === myId) showUpgradeModalClient(cardIds);
+      else if (clientConns[playerId]) clientConns[playerId].send({ type: 'show_upgrade_modal', cardIds });
+    } else {
+      if (playerId === myId) document.getElementById('upgradeModal').style.display = 'none';
+      else if (clientConns[playerId]) clientConns[playerId].send({ type: 'close_upgrade_modal' });
+    }
+  }
 
+  function showUpgradeModalClient(cardIds) {
     const modal = document.getElementById('upgradeModal');
-    document.getElementById('upgradeTitle').innerText = '📖 附魔台：由房主选择一项全队强化';
     const container = document.getElementById('cardContainer');
     container.innerHTML = '';
-
-    picked.forEach(enc => {
+    cardIds.forEach(id => {
+      const enc = enchantPool.find(e => e.id === id);
+      if (!enc) return;
       const card = document.createElement('div');
       card.className = 'card';
-      card.innerHTML = '<h3>' + enc.name + '</h3><p>' + enc.desc + '</p>';
+      card.innerHTML = `<h3>${enc.name}</h3><p>${enc.desc}</p>`;
       card.onclick = () => {
-        enc.apply();
         modal.style.display = 'none';
-        isUpgradePaused = false;
-        Object.values(clientConns).forEach(conn => {
-          if (conn.open) conn.send({ type: 'close_upgrade_modal' });
-        });
-        updateHUD();
+        if (isHost) applyEnchant(myId, enc.id);
+        else hostConn.send({ type: 'select_enchant', cardId: enc.id });
       };
       container.appendChild(card);
     });
     modal.style.display = 'flex';
   }
 
-  function showUpgradeModalClient(cardIds) {
-    isUpgradePaused = true;
-    const modal = document.getElementById('upgradeModal');
-    document.getElementById('upgradeTitle').innerText = '⏳ 等待房主选择全队附魔强化...';
-    const container = document.getElementById('cardContainer');
-    container.innerHTML = '';
-
-    cardIds.forEach(id => {
-      const enc = enchantPool.find(e => e.id === id);
-      if (!enc) return;
-      const card = document.createElement('div');
-      card.className = 'card';
-      card.style.cursor = 'default';
-      card.innerHTML = '<h3>' + enc.name + '</h3><p>' + enc.desc + '</p>';
-      container.appendChild(card);
-    });
-    modal.style.display = 'flex';
-  }
-
-  function showGameOverModal() {
-    isUpgradePaused = true;
-    document.getElementById('finalScore').innerText = '你们小队在第 ' + teamState.wave + ' 波倒下了，共击杀 ' + teamState.kills + ' 只怪物，队伍等级 ' + teamState.lvl;
-    document.getElementById('gameOverModal').style.display = 'flex';
+  function applyEnchant(playerId, cardId) {
+    const p = players[playerId];
+    if (!p || p.pendingUpgrades <= 0) return;
+    const enc = enchantPool.find(e => e.id === cardId);
+    if (enc) {
+      enc.apply(p);
+      p.pendingUpgrades--;
+      sendUpgradeOptionsToPlayer(playerId);
+    }
   }
 
   function getLocalInput(p) {
@@ -701,83 +633,75 @@ window.onload = function() {
     if (keys['KeyA'] || keys['ArrowLeft']) mx -= 1;
     if (keys['KeyD'] || keys['ArrowRight']) mx += 1;
     if (mx !== 0 && my !== 0) { mx *= 0.707; my *= 0.707; }
-    const angle = p ? Math.atan2(mouse.y - (p.y - 20), mouse.x - p.x) : 0;
-    return {
-      mx, my,
-      jump: !!keys['Space'],
-      attack: !!mouse.down,
-      angle: Number(angle.toFixed(2))
-    };
+    return { mx, my, jump: !!keys['Space'], attack: !!mouse.down, angle: Number((p ? Math.atan2(mouse.y - (p.y - 20), mouse.x - p.x) : 0).toFixed(2)) };
   }
 
   // --- 主循环更新 ---
   let syncTick = 0;
   function update() {
     if (!gameStarted) return;
+    if (!isManualPaused) walkTick++;
 
-    const anyPaused = (isManualPaused || isUpgradePaused);
-    if (!anyPaused) walkTick++;
-
-    // 本地粒子在非暂停时更新
-    if (!anyPaused) {
+    if (!isManualPaused) {
       for (let i = particles.length - 1; i >= 0; i--) {
         const pt = particles[i];
-        pt.x += pt.vx; pt.y += pt.vy;
-        pt.z += pt.vz; pt.vz -= 0.35;
+        pt.x += pt.vx; pt.y += pt.vy; pt.z += pt.vz; pt.vz -= 0.35;
         if (pt.z < 0) { pt.z = 0; pt.vx *= 0.6; pt.vy *= 0.6; }
-        pt.life--;
-        if (pt.life <= 0) particles.splice(i, 1);
+        pt.life--; if (pt.life <= 0) particles.splice(i, 1);
       }
     }
 
-    // 客机模式：发送本地输入给房主
     if (!isHost) {
-      if (!anyPaused && hostConn && hostConn.open && players[myId]) {
+      if (!isManualPaused && hostConn && hostConn.open && players[myId]) {
         hostConn.send({ type: 'input', state: getLocalInput(players[myId]) });
       }
       return;
     }
 
-    // ================= 房主权威逻辑 =================
-    if (anyPaused) return;
+    if (isManualPaused) return;
+
+    // --- 波次推进与休整逻辑 ---
+    if (teamState.state === 'PLAYING') {
+      if (teamState.spawnedThisWave >= teamState.targetSpawns && enemies.length === 0) {
+        teamState.state = 'BREAK';
+        teamState.breakTimer = 50 * 60; // 50秒休整 (60fps)
+        Object.values(players).forEach(p => { if (p.hp > 0) p.pendingUpgrades++; }); // 波次通关基础奖励
+        triggerUpgradesForEveryone();
+      }
+    } else if (teamState.state === 'BREAK') {
+      teamState.breakTimer--;
+      if (teamState.breakTimer <= 0) {
+        teamState.wave++;
+        teamState.state = 'PLAYING';
+        teamState.spawnedThisWave = 0;
+        teamState.targetSpawns = 8 + teamState.wave * 4 * Object.keys(players).length;
+      }
+    }
 
     remoteInputs[myId] = getLocalInput(players[myId]);
-    const currentSpeed = 3.3 + teamState.speedBonus;
     let aliveCount = 0;
 
-    // 1. 更新所有玩家
     Object.values(players).forEach(p => {
-      p.maxHp = 100 + teamState.maxHpBonus;
       if (p.hp <= 0) {
-        p.hp = 0;
-        p.bob = 0;
+        p.hp = 0; p.bob = 0;
         p.reviveTimer = (p.reviveTimer || 0) + 1;
         if (p.reviveTimer > 360) {
-          p.hp = Math.floor(p.maxHp * 0.5);
-          p.reviveTimer = 0;
+          p.hp = Math.floor(p.maxHp * 0.5); p.reviveTimer = 0;
           broadcastParticles(p.x, p.y, 15, '#76ff03', 15, 4);
         }
         return;
       }
-      aliveCount++;
-      p.reviveTimer = 0;
+      aliveCount++; p.reviveTimer = 0;
 
       const inp = remoteInputs[p.id] || { mx: 0, my: 0, jump: false, attack: false, angle: 0 };
-      p.x = Math.max(20, Math.min(canvas.width - 20, p.x + inp.mx * currentSpeed));
-      p.y = Math.max(40, Math.min(canvas.height - 20, p.y + inp.my * currentSpeed * 0.88));
+      p.x = Math.max(20, Math.min(canvas.width - 20, p.x + inp.mx * (3.3 + p.speedBonus)));
+      p.y = Math.max(40, Math.min(canvas.height - 20, p.y + inp.my * (3.3 + p.speedBonus) * 0.88));
       resolveObstacleCollision(p);
 
       if (inp.jump && p.z === 0) p.vz = 7.5;
       p.z += p.vz;
-      if (p.z > 0) p.vz -= 0.45;
-      else { p.z = 0; p.vz = 0; }
-
-      if ((inp.mx !== 0 || inp.my !== 0) && p.z === 0) {
-        p.bob = Math.round(Math.abs(Math.sin(walkTick * 0.22)) * 4);
-      } else {
-        p.bob = 0;
-      }
-
+      if (p.z > 0) p.vz -= 0.45; else { p.z = 0; p.vz = 0; }
+      p.bob = ((inp.mx !== 0 || inp.my !== 0) && p.z === 0) ? Math.round(Math.abs(Math.sin(walkTick * 0.22)) * 4) : 0;
       p.angle = inp.angle;
       if (p.cooldownTimer > 0) p.cooldownTimer--;
       if (p.swingAnim > 0) p.swingAnim--;
@@ -786,136 +710,79 @@ window.onload = function() {
 
     if (aliveCount === 0 && Object.keys(players).length > 0) {
       Object.values(clientConns).forEach(c => c.open && c.send({ type: 'game_over' }));
-      showGameOverModal();
+      document.getElementById('finalScore').innerText = '小队倒在了第 ' + teamState.wave + ' 波';
+      document.getElementById('gameOverModal').style.display = 'flex';
       return;
     }
 
-    // 2. 更新怪物
     for (let i = enemies.length - 1; i >= 0; i--) {
       const e = enemies[i];
       const { target, dist } = getNearestAlivePlayer(e.x, e.y);
       if (!target) continue;
 
-      const dx = target.x - e.x, dy = target.y - e.y;
-      const angle = Math.atan2(dy, dx);
-
-      e.x += e.vx; e.y += e.vy;
-      e.vx *= 0.8; e.vy *= 0.8;
-      e.z += e.vz;
-      if (e.z > 0) e.vz -= 0.45;
-      else { e.z = 0; e.vz = 0; }
+      const dx = target.x - e.x, dy = target.y - e.y, angle = Math.atan2(dy, dx);
+      e.x += e.vx; e.y += e.vy; e.vx *= 0.8; e.vy *= 0.8;
+      e.z += e.vz; if (e.z > 0) e.vz -= 0.45; else { e.z = 0; e.vz = 0; }
       if (e.hitFlash > 0) e.hitFlash--;
 
       if (e.type === 'zombie') {
-        e.x += Math.cos(angle) * e.speed;
-        e.y += Math.sin(angle) * e.speed * 0.88;
+        e.x += Math.cos(angle) * e.speed; e.y += Math.sin(angle) * e.speed * 0.88;
         if (dist < 27 && target.z < 15) target.hp -= 0.35;
-      } 
-      else if (e.type === 'skeleton') {
-        if (dist > 230) {
-          e.x += Math.cos(angle) * e.speed;
-          e.y += Math.sin(angle) * e.speed * 0.88;
-        } else if (dist < 140) {
-          e.x -= Math.cos(angle) * e.speed * 0.8;
-          e.y -= Math.sin(angle) * e.speed * 0.7;
-        }
+      } else if (e.type === 'skeleton') {
+        if (dist > 230) { e.x += Math.cos(angle) * e.speed; e.y += Math.sin(angle) * e.speed * 0.88; }
+        else if (dist < 140) { e.x -= Math.cos(angle) * e.speed * 0.8; e.y -= Math.sin(angle) * e.speed * 0.7; }
         e.shootTimer--;
-        if (e.shootTimer <= 0) {
-          e.shootTimer = 105;
-          projectiles.push({ x: e.x, y: e.y, z: 18, vx: Math.cos(angle) * 5.5, vy: Math.sin(angle) * 5.5 });
-        }
-      } 
-      else if (e.type === 'creeper') {
+        if (e.shootTimer <= 0) { e.shootTimer = 105; projectiles.push({ x: e.x, y: e.y, z: 18, vx: Math.cos(angle)*5.5, vy: Math.sin(angle)*5.5 }); }
+      } else if (e.type === 'creeper') {
         if (dist < 65 || e.fuse > 0) {
-          e.fuse++;
-          if (e.fuse > 50) {
-            explodeCreeper(e);
-            enemies.splice(i, 1);
-            continue;
-          }
-        } else {
-          e.x += Math.cos(angle) * e.speed;
-          e.y += Math.sin(angle) * e.speed * 0.88;
-        }
+          e.fuse++; if (e.fuse > 50) { explodeCreeper(e); enemies.splice(i, 1); continue; }
+        } else { e.x += Math.cos(angle) * e.speed; e.y += Math.sin(angle) * e.speed * 0.88; }
       }
-
       resolveObstacleCollision(e);
 
       if (e.hp <= 0) {
         teamState.kills++;
-        if (teamState.kills % 10 === 0) teamState.wave++;
         xpOrbs.push({ x: Math.round(e.x), y: Math.round(e.y) });
         broadcastParticles(e.x, e.y, 15, '#76ff03', 10, 4);
         enemies.splice(i, 1);
       }
     }
 
-    // 3. 更新箭矢
     for (let i = projectiles.length - 1; i >= 0; i--) {
-      const pr = projectiles[i];
-      pr.x += pr.vx; pr.y += pr.vy;
+      const pr = projectiles[i]; pr.x += pr.vx; pr.y += pr.vy;
       let hitWall = false;
-      obstacles.forEach(ob => {
-        if (Math.abs(pr.x - ob.x) < ob.w/2 && Math.abs(pr.y - ob.y) < ob.d/2) hitWall = true;
-      });
-      if (hitWall) {
-        broadcastParticles(pr.x, pr.y, pr.z, '#bdbdbd', 4, 2);
-        projectiles.splice(i, 1);
-        continue;
-      }
+      obstacles.forEach(ob => { if (Math.abs(pr.x - ob.x) < ob.w/2 && Math.abs(pr.y - ob.y) < ob.d/2) hitWall = true; });
+      if (hitWall) { broadcastParticles(pr.x, pr.y, pr.z, '#bdbdbd', 4, 2); projectiles.splice(i, 1); continue; }
 
       let hitPlayer = false;
       Object.values(players).forEach(p => {
-        if (p.hp > 0 && Math.hypot(pr.x - p.x, pr.y - p.y) < 19 && p.z < 20) {
-          p.hp -= 12;
-          hitPlayer = true;
-          broadcastParticles(p.x, p.y, 15, '#ff1744', 6, 4);
-        }
+        if (p.hp > 0 && Math.hypot(pr.x - p.x, pr.y - p.y) < 19 && p.z < 20) { p.hp -= 12; hitPlayer = true; broadcastParticles(p.x, p.y, 15, '#ff1744', 6, 4); }
       });
-      if (hitPlayer || pr.x < 0 || pr.x > canvas.width || pr.y < 0 || pr.y > canvas.height) {
-        projectiles.splice(i, 1);
-      }
+      if (hitPlayer || pr.x < 0 || pr.x > canvas.width || pr.y < 0 || pr.y > canvas.height) projectiles.splice(i, 1);
     }
 
-    // 4. 经验球吸附
+    // 独立的经验拾取逻辑
     for (let i = xpOrbs.length - 1; i >= 0; i--) {
       const orb = xpOrbs[i];
       const { target, dist } = getNearestAlivePlayer(orb.x, orb.y);
-      if (target && dist < 125) {
-        orb.x += (target.x - orb.x) * 0.14;
-        orb.y += (target.y - orb.y) * 0.14;
-      }
+      if (target && dist < 125) { orb.x += (target.x - orb.x) * 0.14; orb.y += (target.y - orb.y) * 0.14; }
       if (target && dist < 22) {
-        teamState.xp++;
-        xpOrbs.splice(i, 1);
-        if (teamState.xp >= teamState.maxXp) {
-          teamState.lvl++;
-          teamState.xp = 0;
-          teamState.maxXp = Math.floor(teamState.maxXp * 1.4) + 3;
-          triggerHostLevelUp();
+        target.xp++; xpOrbs.splice(i, 1);
+        if (target.xp >= target.maxXp) {
+          target.lvl++; target.xp = 0; target.maxXp = Math.floor(target.maxXp * 1.4) + 3;
+          target.pendingUpgrades++;
+          // 如果当前处于休整阶段，则立即弹窗给该玩家
+          if (teamState.state === 'BREAK') sendUpgradeOptionsToPlayer(target.id);
         }
       }
     }
 
     updateHUD();
 
-    // 5. 广播状态给所有客机
     syncTick++;
     if (syncTick % 2 === 0) {
-      const packet = {
-        type: 'sync',
-        players,
-        enemies,
-        projectiles,
-        xpOrbs,
-        teamState,
-        isManualPaused,
-        isUpgradePaused,
-        events: pendingParticleEvents
-      };
-      Object.values(clientConns).forEach(conn => {
-        if (conn.open) conn.send(packet);
-      });
+      const packet = { type: 'sync', players, enemies, projectiles, xpOrbs, teamState, events: pendingParticleEvents };
+      Object.values(clientConns).forEach(conn => { if (conn.open) conn.send(packet); });
       pendingParticleEvents = [];
     }
   }
@@ -925,239 +792,150 @@ window.onload = function() {
     if (me) {
       document.getElementById('hpText').innerText = Math.max(0, Math.ceil(me.hp)) + '/' + me.maxHp;
       document.getElementById('hpBar').style.width = Math.max(0, (me.hp / me.maxHp) * 100) + '%';
+      document.getElementById('lvlText').innerText = me.lvl;
+      document.getElementById('xpBar').style.width = ((me.xp / me.maxXp) * 100) + '%';
     }
-    document.getElementById('lvlText').innerText = teamState.lvl;
-    document.getElementById('xpBar').style.width = ((teamState.xp / teamState.maxXp) * 100) + '%';
     document.getElementById('waveText').innerText = teamState.wave;
     document.getElementById('killText').innerText = teamState.kills;
-    document.getElementById('playerCountText').innerText = Object.keys(players).length;
+    document.getElementById('playerCountText').innerText = Object.keys(players).filter(k=>players[k].hp>0).length;
+
+    // 波次休整倒计时 UI
+    const breakEl = document.getElementById('breakTimerDisplay');
+    const skipBtn = document.getElementById('skipBreakBtn');
+    if (teamState.state === 'BREAK') {
+      breakEl.style.display = 'inline-block';
+      breakEl.innerText = `☕ 休整倒计时: ${Math.ceil(teamState.breakTimer / 60)}s`;
+      skipBtn.style.display = isHost ? 'inline-block' : 'none';
+    } else {
+      breakEl.style.display = 'none';
+      skipBtn.style.display = 'none';
+    }
   }
 
   // ==========================================
-  // 三、2.5D 立体体素渲染引擎
+  // 渲染层
   // ==========================================
   function drawVoxelBox(x, y, z, w, d, h, topColor, frontColor, borderColor) {
-    const left = x - w / 2;
-    const screenY = y - z;
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = borderColor || '#1a1a1a';
-
-    ctx.fillStyle = frontColor;
-    ctx.fillRect(left, screenY - h, w, h);
-    ctx.strokeRect(left, screenY - h, w, h);
-
-    const topDepth = d * 0.6;
-    ctx.fillStyle = topColor;
-    ctx.fillRect(left, screenY - h - topDepth, w, topDepth);
-    ctx.strokeRect(left, screenY - h - topDepth, w, topDepth);
+    const left = x - w / 2, screenY = y - z;
+    ctx.lineWidth = 1.5; ctx.strokeStyle = borderColor || '#1a1a1a';
+    ctx.fillStyle = frontColor; ctx.fillRect(left, screenY - h, w, h); ctx.strokeRect(left, screenY - h, w, h);
+    const topDepth = d * 0.6; ctx.fillStyle = topColor; ctx.fillRect(left, screenY - h - topDepth, w, topDepth); ctx.strokeRect(left, screenY - h - topDepth, w, topDepth);
   }
 
   function drawPlayerVoxel(p) {
     const z = p.z + (p.bob || 0);
     ctx.save();
     if (p.hp <= 0) ctx.globalAlpha = 0.45;
-
     const shadowScale = Math.max(0.4, 1 - z / 90);
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.beginPath();
-    ctx.ellipse(p.x, p.y, 14 * shadowScale, 7 * shadowScale, 0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(p.x, p.y, 14 * shadowScale, 7 * shadowScale, 0, 0, Math.PI * 2); ctx.fill();
 
     const isAlex = p.skin === 'alex';
-    const legTop = isAlex ? '#6d4c41' : '#1e88e5';
-    const legFront = isAlex ? '#4e342e' : '#1565c0';
-    const bodyTop = isAlex ? '#7cb342' : '#00acc1';
-    const bodyFront = isAlex ? '#558b2f' : '#00838f';
+    const legTop = isAlex ? '#6d4c41' : '#1e88e5', legFront = isAlex ? '#4e342e' : '#1565c0';
+    const bodyTop = isAlex ? '#7cb342' : '#00acc1', bodyFront = isAlex ? '#558b2f' : '#00838f';
     const hairTop = isAlex ? '#ff9800' : '#5d4037';
-
     drawVoxelBox(p.x, p.y, z, 14, 10, 10, legTop, legFront);
     drawVoxelBox(p.x, p.y, z + 10, 18, 12, 14, bodyTop, bodyFront);
     drawVoxelBox(p.x, p.y, z + 24, 18, 16, 15, hairTop, '#d7ccc8');
 
     const eyeOffsetX = Math.cos(p.angle) * 4;
     ctx.fillStyle = isAlex ? '#2e7d32' : '#3f51b5';
-    ctx.fillRect(p.x + eyeOffsetX - 5, p.y - z - 32, 3, 3);
-    ctx.fillRect(p.x + eyeOffsetX + 2, p.y - z - 32, 3, 3);
+    ctx.fillRect(p.x + eyeOffsetX - 5, p.y - z - 32, 3, 3); ctx.fillRect(p.x + eyeOffsetX + 2, p.y - z - 32, 3, 3);
 
     ctx.save();
     ctx.translate(p.x + Math.cos(p.angle)*12, (p.y - z - 18) + Math.sin(p.angle)*8);
     ctx.rotate(p.angle + (p.swingAnim > 0 ? Math.sin(p.swingAnim * 0.6) * 1.2 : 0));
-    ctx.fillStyle = '#00e5ff';
-    ctx.fillRect(0, -3, 22, 6);
-    ctx.strokeStyle = '#006064';
-    ctx.strokeRect(0, -3, 22, 6);
-    ctx.restore();
-    ctx.restore();
+    ctx.fillStyle = '#00e5ff'; ctx.fillRect(0, -3, 22, 6); ctx.strokeStyle = '#006064'; ctx.strokeRect(0, -3, 22, 6);
+    ctx.restore(); ctx.restore();
 
     const tagY = p.y - z - 56;
-    ctx.font = 'bold 12px Courier New';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#000';
-    ctx.fillText(p.name, p.x + 1, tagY - 7);
-    ctx.fillStyle = p.id === myId ? '#76ff03' : '#84ffff';
-    ctx.fillText(p.name, p.x, tagY - 8);
-
-    if (p.hp <= 0) {
-      ctx.fillStyle = '#ff5252';
-      ctx.fillText('⏳救援中...', p.x, tagY - 22);
-    } else if (p.hp < p.maxHp) {
-      ctx.fillStyle = '#000';
-      ctx.fillRect(p.x - 16, tagY - 4, 32, 5);
-      ctx.fillStyle = '#76ff03';
-      ctx.fillRect(p.x - 15, tagY - 3, 30 * (p.hp / p.maxHp), 3);
-    }
+    ctx.font = 'bold 12px Courier New'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#000'; ctx.fillText(p.name, p.x + 1, tagY - 7);
+    ctx.fillStyle = p.id === myId ? '#76ff03' : '#84ffff'; ctx.fillText(p.name, p.x, tagY - 8);
+    if (p.hp <= 0) { ctx.fillStyle = '#ff5252'; ctx.fillText('⏳救援中...', p.x, tagY - 22); }
+    else if (p.hp < p.maxHp) { ctx.fillStyle = '#000'; ctx.fillRect(p.x - 16, tagY - 4, 32, 5); ctx.fillStyle = '#76ff03'; ctx.fillRect(p.x - 15, tagY - 3, 30 * (p.hp / p.maxHp), 3); }
   }
 
   function drawEnemyVoxel(e) {
-    const bob = Math.abs(Math.sin((walkTick + (e.animOffset || 0)) * 0.18)) * 3.5;
-    const z = e.z + bob;
+    const bob = Math.abs(Math.sin((walkTick + (e.animOffset || 0)) * 0.18)) * 3.5, z = e.z + bob;
     const shadowScale = Math.max(0.4, 1 - z / 90);
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.beginPath();
-    ctx.ellipse(e.x, e.y, 14 * shadowScale, 7 * shadowScale, 0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(e.x, e.y, 14 * shadowScale, 7 * shadowScale, 0, 0, Math.PI * 2); ctx.fill();
 
     const f = e.hitFlash > 0;
     if (e.type === 'zombie') {
       drawVoxelBox(e.x, e.y, z, 14, 10, 10, f ? '#ff8a80' : '#3949ab', f ? '#ff1744' : '#283593');
       drawVoxelBox(e.x, e.y, z + 10, 18, 12, 14, f ? '#ff8a80' : '#00897b', f ? '#ff1744' : '#00695c');
       drawVoxelBox(e.x, e.y, z + 24, 18, 16, 15, f ? '#ff8a80' : '#66bb6a', f ? '#ff1744' : '#43a047');
-      ctx.fillStyle = '#111';
-      ctx.fillRect(e.x - 5, e.y - z - 32, 4, 3);
-      ctx.fillRect(e.x + 2, e.y - z - 32, 4, 3);
-    }
-    else if (e.type === 'skeleton') {
+      ctx.fillStyle = '#111'; ctx.fillRect(e.x - 5, e.y - z - 32, 4, 3); ctx.fillRect(e.x + 2, e.y - z - 32, 4, 3);
+    } else if (e.type === 'skeleton') {
       drawVoxelBox(e.x, e.y, z, 10, 8, 11, f ? '#ff8a80' : '#eeeeee', f ? '#ff1744' : '#bdbdbd');
       drawVoxelBox(e.x, e.y, z + 11, 14, 10, 13, f ? '#ff8a80' : '#f5f5f5', f ? '#ff1744' : '#cfcfcf');
       drawVoxelBox(e.x, e.y, z + 24, 17, 15, 15, f ? '#ff8a80' : '#ffffff', f ? '#ff1744' : '#e0e0e0');
-      ctx.fillStyle = '#222';
-      ctx.fillRect(e.x - 5, e.y - z - 33, 4, 3);
-      ctx.fillRect(e.x + 2, e.y - z - 33, 4, 3);
+      ctx.fillStyle = '#222'; ctx.fillRect(e.x - 5, e.y - z - 33, 4, 3); ctx.fillRect(e.x + 2, e.y - z - 33, 4, 3);
+    } else if (e.type === 'creeper') {
+      const fw = (e.fuse > 0 && Math.floor(e.fuse / 4) % 2 === 0);
+      const topC = f ? '#ff8a80' : (fw ? '#ffffff' : '#69f0ae'), frontC = f ? '#ff1744' : (fw ? '#eeeeee' : '#00c853');
+      const sw = e.fuse > 0 ? Math.floor((e.fuse / 50) * 5) : 0;
+      drawVoxelBox(e.x, e.y, z, 16 + sw, 14 + sw, 8, topC, frontC);
+      drawVoxelBox(e.x, e.y, z + 8, 14 + sw, 12 + sw, 16, topC, frontC);
+      drawVoxelBox(e.x, e.y, z + 24, 18 + sw, 16 + sw, 16 + sw, topC, frontC);
+      ctx.fillStyle = '#111'; ctx.fillRect(e.x - 5, e.y - z - 35, 3, 4); ctx.fillRect(e.x + 2, e.y - z - 35, 3, 4); ctx.fillRect(e.x - 3, e.y - z - 30, 6, 5);
     }
-    else if (e.type === 'creeper') {
-      const flashWhite = (e.fuse > 0 && Math.floor(e.fuse / 4) % 2 === 0);
-      const topC = f ? '#ff8a80' : (flashWhite ? '#ffffff' : '#69f0ae');
-      const frontC = f ? '#ff1744' : (flashWhite ? '#eeeeee' : '#00c853');
-      const swell = e.fuse > 0 ? Math.floor((e.fuse / 50) * 5) : 0;
-
-      drawVoxelBox(e.x, e.y, z, 16 + swell, 14 + swell, 8, topC, frontC);
-      drawVoxelBox(e.x, e.y, z + 8, 14 + swell, 12 + swell, 16, topC, frontC);
-      drawVoxelBox(e.x, e.y, z + 24, 18 + swell, 16 + swell, 16 + swell, topC, frontC);
-      ctx.fillStyle = '#111';
-      ctx.fillRect(e.x - 5, e.y - z - 35, 3, 4);
-      ctx.fillRect(e.x + 2, e.y - z - 35, 3, 4);
-      ctx.fillRect(e.x - 3, e.y - z - 30, 6, 5);
-    }
-
     if (e.hp < e.maxHp) {
-      const barY = e.y - z - 55;
-      ctx.fillStyle = '#000';
-      ctx.fillRect(e.x - 15, barY, 30, 6);
-      ctx.fillStyle = '#ff1744';
-      ctx.fillRect(e.x - 14, barY + 1, 28 * (e.hp / e.maxHp), 4);
+      ctx.fillStyle = '#000'; ctx.fillRect(e.x - 15, e.y - z - 55, 30, 6); ctx.fillStyle = '#ff1744'; ctx.fillRect(e.x - 14, e.y - z - 54, 28 * (e.hp / e.maxHp), 4);
     }
   }
 
   function draw() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-
     const tileW = 60, tileH = 42;
     for (let r = 0; r < canvas.height / tileH + 1; r++) {
       for (let c = 0; c < canvas.width / tileW + 1; c++) {
-        ctx.fillStyle = (r + c) % 2 === 0 ? '#4b702c' : '#446627';
-        ctx.fillRect(c * tileW, r * tileH, tileW, tileH);
+        ctx.fillStyle = (r + c) % 2 === 0 ? '#4b702c' : '#446627'; ctx.fillRect(c * tileW, r * tileH, tileW, tileH);
       }
     }
 
-    const range = 75 + teamState.rangeBonus;
-    const arc = Math.PI * 0.7 + teamState.arcBonus;
     Object.values(players).forEach(p => {
       if (p.swingAnim > 0 && p.hp > 0) {
-        ctx.save();
-        ctx.translate(p.x, p.y - p.z - 16);
-        ctx.scale(1, 0.72);
-        ctx.rotate(p.angle);
-        ctx.beginPath();
-        ctx.moveTo(0, 0);
-        ctx.arc(0, 0, range, -arc / 2, arc / 2);
-        ctx.closePath();
-        ctx.fillStyle = 'rgba(0, 229, 255, ' + (p.swingAnim / 14) + ')';
-        ctx.fill();
-        ctx.strokeStyle = '#84ffff';
-        ctx.lineWidth = 3;
-        ctx.stroke();
-        ctx.restore();
+        ctx.save(); ctx.translate(p.x, p.y - p.z - 16); ctx.scale(1, 0.72); ctx.rotate(p.angle);
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.arc(0, 0, 75 + p.rangeBonus, -(Math.PI*0.7+p.arcBonus) / 2, (Math.PI*0.7+p.arcBonus) / 2); ctx.closePath();
+        ctx.fillStyle = 'rgba(0, 229, 255, ' + (p.swingAnim / 14) + ')'; ctx.fill(); ctx.strokeStyle = '#84ffff'; ctx.lineWidth = 3; ctx.stroke(); ctx.restore();
       }
     });
 
     const renderList = [];
-
     obstacles.forEach(ob => {
       renderList.push({
-        y: ob.y,
-        draw: () => {
-          ctx.fillStyle = 'rgba(0,0,0,0.3)';
-          ctx.beginPath();
-          ctx.ellipse(ob.x, ob.y, ob.w * 0.65, ob.d * 0.4, 0, 0, Math.PI * 2);
-          ctx.fill();
-          if (ob.type === 'pillar') {
-            drawVoxelBox(ob.x, ob.y, 0, ob.w, ob.d, ob.h, '#9e9e9e', '#616161');
-            drawVoxelBox(ob.x, ob.y, ob.h, ob.w - 8, ob.d - 6, 10, '#bdbdbd', '#757575');
-          } else {
-            drawVoxelBox(ob.x, ob.y, 0, 18, 16, 28, '#8d6e63', '#5d4037');
-            drawVoxelBox(ob.x, ob.y, 26, 52, 42, 26, '#66bb6a', '#2e7d32');
-            drawVoxelBox(ob.x, ob.y, 52, 34, 28, 18, '#81c784', '#388e3c');
-          }
+        y: ob.y, draw: () => {
+          ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.beginPath(); ctx.ellipse(ob.x, ob.y, ob.w * 0.65, ob.d * 0.4, 0, 0, Math.PI * 2); ctx.fill();
+          if (ob.type === 'pillar') { drawVoxelBox(ob.x, ob.y, 0, ob.w, ob.d, ob.h, '#9e9e9e', '#616161'); drawVoxelBox(ob.x, ob.y, ob.h, ob.w - 8, ob.d - 6, 10, '#bdbdbd', '#757575'); }
+          else { drawVoxelBox(ob.x, ob.y, 0, 18, 16, 28, '#8d6e63', '#5d4037'); drawVoxelBox(ob.x, ob.y, 26, 52, 42, 26, '#66bb6a', '#2e7d32'); drawVoxelBox(ob.x, ob.y, 52, 34, 28, 18, '#81c784', '#388e3c'); }
         }
       });
     });
 
     xpOrbs.forEach(orb => {
       renderList.push({
-        y: orb.y,
-        draw: () => {
+        y: orb.y, draw: () => {
           const floatZ = 6 + Math.sin(walkTick * 0.15) * 3;
-          ctx.fillStyle = 'rgba(0,0,0,0.3)';
-          ctx.fillRect(orb.x - 4, orb.y - 2, 8, 4);
-          const c = (Date.now() % 400 < 200) ? '#76ff03' : '#ffeb3b';
-          drawVoxelBox(orb.x, orb.y, floatZ, 8, 8, 8, '#ffffff', c);
+          ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(orb.x - 4, orb.y - 2, 8, 4);
+          drawVoxelBox(orb.x, orb.y, floatZ, 8, 8, 8, '#ffffff', (Date.now() % 400 < 200) ? '#76ff03' : '#ffeb3b');
         }
       });
     });
 
-    Object.values(players).forEach(p => {
-      renderList.push({ y: p.y, draw: () => drawPlayerVoxel(p) });
-    });
-
-    enemies.forEach(e => {
-      renderList.push({ y: e.y, draw: () => drawEnemyVoxel(e) });
-    });
-
+    Object.values(players).forEach(p => renderList.push({ y: p.y, draw: () => drawPlayerVoxel(p) }));
+    enemies.forEach(e => renderList.push({ y: e.y, draw: () => drawEnemyVoxel(e) }));
     projectiles.forEach(pr => {
       renderList.push({
-        y: pr.y,
-        draw: () => {
-          ctx.fillStyle = 'rgba(0,0,0,0.25)';
-          ctx.fillRect(pr.x - 3, pr.y, 6, 3);
-          drawVoxelBox(pr.x, pr.y, pr.z, 7, 7, 5, '#ffffff', '#cfd8dc');
-        }
+        y: pr.y, draw: () => { ctx.fillStyle = 'rgba(0,0,0,0.25)'; ctx.fillRect(pr.x - 3, pr.y, 6, 3); drawVoxelBox(pr.x, pr.y, pr.z, 7, 7, 5, '#ffffff', '#cfd8dc'); }
       });
     });
 
-    renderList.sort((a, b) => a.y - b.y);
-    renderList.forEach(item => item.draw());
-
-    particles.forEach(pt => {
-      ctx.fillStyle = pt.color;
-      ctx.fillRect(pt.x - 3, pt.y - pt.z - 3, 6, 6);
-    });
+    renderList.sort((a, b) => a.y - b.y).forEach(item => item.draw());
+    particles.forEach(pt => { ctx.fillStyle = pt.color; ctx.fillRect(pt.x - 3, pt.y - pt.z - 3, 6, 6); });
   }
 
-  function loop() {
-    update();
-    draw();
-    requestAnimationFrame(loop);
-  }
+  function loop() { update(); draw(); requestAnimationFrame(loop); }
   loop();
 };
 </script>
